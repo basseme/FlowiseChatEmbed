@@ -9,8 +9,9 @@ import { BotMessageTheme, TextInputTheme, UserMessageTheme } from '@/features/bu
 import { Badge } from './Badge'
 import socketIOClient from 'socket.io-client'
 import { Popup } from '@/features/popup'
+import { NewChatMessageInput, PutChatMessageInput, createNewChatMessageQuery, deleteChatMessageQuery, getChatMessageQuery, updateChatMessageQuery } from '@/queries/chatMessageQuery'
 
-type messageType = 'apiMessage' | 'userMessage' | 'usermessagewaiting'
+export type messageType = 'apiMessage' | 'userMessage' | 'usermessagewaiting'
 
 export type MessageType = {
     message: string
@@ -127,6 +128,7 @@ export const Bot = (props: BotProps & { class?: string }) => {
     ], { equals: false })
     const [socketIOClientId, setSocketIOClientId] = createSignal('')
     const [isChatFlowAvailableToStream, setIsChatFlowAvailableToStream] = createSignal(false)
+    let chatId = localStorage.getItem(props.chatflowid + '_external')
 
     onMount(() => {
         if (!bottomSpacer) return
@@ -165,9 +167,55 @@ export const Bot = (props: BotProps & { class?: string }) => {
         });
     }
 
+    const addChatMessage = async (message: string, type: messageType, sourceDocuments?: any) => {
+        try {
+            const body: NewChatMessageInput = {
+                role: type,
+                chatType: 'external',
+                content: message,
+                chatflowid: props.chatflowid,
+                chatId: chatId ?? undefined
+            }
+            if (sourceDocuments) body.sourceDocuments = JSON.stringify(sourceDocuments)
+            const resp = await createNewChatMessageQuery({
+                chatflowid: props.chatflowid,
+                apiHost: props.apiHost,
+                body
+            })
+            if (!chatId) {
+                localStorage.setItem(props.chatflowid + '_external', resp.data.id)
+                chatId = resp.data.id
+            }
+        } catch (error) {
+            console.error(error)
+        }
+    }
+
+    const clearChat = async () => {
+        try {
+            await deleteChatMessageQuery({
+                chatflowid: props.chatflowid,
+                apiHost: props.apiHost,
+                chatId: chatId ?? undefined
+            })
+            localStorage.removeItem(props.chatflowid + '_external')
+            chatId = null
+            setMessages([
+                {
+                    message: props.welcomeMessage ?? defaultWelcomeMessage,
+                    type: 'apiMessage'
+                },
+            ])
+        } catch (error: any) {
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
+            console.error(`error: ${errorData}`)
+        }
+    }
+
     // Handle errors
     const handleError = (message = 'Oops! There seems to be an error. Please try again.') => {
         setMessages((prevMessages) => [...prevMessages, { message, type: 'apiMessage' }])
+        addChatMessage(message, 'apiMessage')
         setLoading(false)
         setUserInput('')
         scrollToBottom()
@@ -189,9 +237,11 @@ export const Bot = (props: BotProps & { class?: string }) => {
         const messageList = messages().filter((msg) => msg.message !== welcomeMessage)
 
         setMessages((prevMessages) => [...prevMessages, { message: value, type: 'userMessage' }])
+        await addChatMessage(value, 'userMessage')
 
         const body: IncomingInput = {
             question: value,
+            chatId: chatId ?? undefined,
             history: messageList
         }
 
@@ -199,16 +249,27 @@ export const Bot = (props: BotProps & { class?: string }) => {
 
         if (isChatFlowAvailableToStream()) body.socketIOClientId = socketIOClientId()
 
-        const result = await sendMessageQuery({
+        const { data, error } = await sendMessageQuery({
             chatflowid: props.chatflowid,
             apiHost: props.apiHost,
             body
         })
 
-        if (result.data) {
-
-            const data = handleVectaraMetadata(result.data)
-
+        if (data) {
+            if (data.sessionId !== undefined && data.sessionId !== chatId) {
+                const sessionId = data.sessionId
+                const body: PutChatMessageInput = {
+                    chatflowId: props.chatflowid,
+                    chatId: chatId ?? undefined,
+                    sessionId: sessionId
+                }
+                await updateChatMessageQuery({
+                    apiHost: props.apiHost,
+                    body
+                })
+                localStorage.setItem(props.chatflowid + '_external', sessionId)
+                chatId = sessionId
+            }
             if (typeof data === 'object' && data.text && data.sourceDocuments) {
                 if (!isChatFlowAvailableToStream()) {
                     setMessages((prevMessages) => [
@@ -216,18 +277,21 @@ export const Bot = (props: BotProps & { class?: string }) => {
                         { message: data.text, sourceDocuments: data.sourceDocuments, type: 'apiMessage' }
                     ])
                 }
+                addChatMessage(data.text, 'apiMessage', data.sourceDocuments)
             } else {
-                if (!isChatFlowAvailableToStream()) setMessages((prevMessages) => [...prevMessages, { message: data, type: 'apiMessage' }])
+                if (!isChatFlowAvailableToStream()) {
+                    setMessages((prevMessages) => [...prevMessages, { message: data, type: 'apiMessage' }])
+                }
+                addChatMessage(data.text, 'apiMessage')
             }
             setLoading(false)
             setUserInput('')
             scrollToBottom()
         }
-        if (result.error) {
-            const error = result.error
+        if (error) {
             console.error(error)
             const err: any = error
-            const errorData = typeof err === 'string'? err :err.response.data || `${err.response.status}: ${err.response.statusText}`
+            const errorData = err.response.data || `${err.response.status}: ${err.response.statusText}`
             handleError(errorData)
             return
         }
@@ -251,6 +315,24 @@ export const Bot = (props: BotProps & { class?: string }) => {
 
         if (data) {
             setIsChatFlowAvailableToStream(data?.isStreaming ?? false)
+        }
+        const resp: any = await getChatMessageQuery({
+            chatflowid: props.chatflowid,
+            apiHost: props.apiHost,
+            chatId: chatId ?? undefined
+        })
+        // setChatHistory(resp)
+        if (resp.data) {
+            const loadedMessages: any = []
+            for (const message of resp.data) {
+                const obj: any = {
+                    message: message.content,
+                    type: message.role
+                }
+                if (message.sourceDocuments) obj.sourceDocuments = JSON.parse(message.sourceDocuments)
+                loadedMessages.push(obj)
+            }
+            setMessages((prevMessages) => [...prevMessages, ...loadedMessages])
         }
 
         const socket = socketIOClient(props.apiHost as string)
@@ -291,29 +373,9 @@ export const Bot = (props: BotProps & { class?: string }) => {
             return undefined
         }
     }
-
-    const handleVectaraMetadata = (message: any): any => {
-        if (message.sourceDocuments && message.sourceDocuments[0].metadata.length) {
-            message.sourceDocuments = message.sourceDocuments.map((docs: any) => {
-                const newMetadata: { [name: string]: any } = docs.metadata.reduce((newMetadata: any, metadata: any) => {
-                    newMetadata[metadata.name] = metadata.value;
-                    return newMetadata;
-                }, {})
-                return {
-                    pageContent: docs.pageContent,
-                    metadata: newMetadata,
-                }
-            })
-        }
-        return message
-    };
-
     const removeDuplicateURL = (message: MessageType) => {
         const visitedURLs: string[] = []
         const newSourceDocuments: any = []
-
-        message = handleVectaraMetadata(message)
-
         message.sourceDocuments.forEach((source: any) => {
             if (isValidURL(source.metadata.source) && !visitedURLs.includes(source.metadata.source)) {
                 visitedURLs.push(source.metadata.source)
@@ -389,6 +451,7 @@ export const Bot = (props: BotProps & { class?: string }) => {
                         fontSize={props.fontSize}
                         defaultValue={userInput()}
                         onSubmit={handleSubmit}
+                        onDelete={clearChat}
                     />
                 </div>
                 <Badge badgeBackgroundColor={props.badgeBackgroundColor} poweredByTextColor={props.poweredByTextColor} botContainer={botContainer} />
