@@ -1,15 +1,22 @@
-import { createSignal, createEffect, For, onMount } from 'solid-js'
-import { sendMessageQuery, isStreamAvailableQuery, IncomingInput } from '@/queries/sendMessageQuery'
-import { TextInput } from './inputs/textInput'
-import { GuestBubble } from './bubbles/GuestBubble'
-import { BotBubble } from './bubbles/BotBubble'
-import { LoadingBubble } from './bubbles/LoadingBubble'
-import { SourceBubble } from './bubbles/SourceBubble'
-import { BotMessageTheme, TextInputTheme, UserMessageTheme } from '@/features/bubble/types'
-import { Badge } from './Badge'
+import {createEffect, createSignal, For, onMount} from 'solid-js'
+import {IncomingInput, isStreamAvailableQuery, sendMessageQuery} from '@/queries/sendMessageQuery'
+import {TextInput} from './inputs/textInput'
+import {GuestBubble} from './bubbles/GuestBubble'
+import {BotBubble} from './bubbles/BotBubble'
+import {LoadingBubble} from './bubbles/LoadingBubble'
+import {SourceBubble} from './bubbles/SourceBubble'
+import {BotMessageTheme, TextInputTheme, UserMessageTheme} from '@/features/bubble/types'
+import {Badge} from './Badge'
 import socketIOClient from 'socket.io-client'
-import { Popup } from '@/features/popup'
-import { NewChatMessageInput, PutChatMessageInput, createNewChatMessageQuery, deleteChatMessageQuery, getChatMessageQuery, updateChatMessageQuery } from '@/queries/chatMessageQuery'
+import {Popup} from '@/features/popup'
+import {
+    createNewChatMessageQuery,
+    deleteChatMessageQuery,
+    getChatMessageQuery,
+    NewChatMessageInput,
+    PutChatMessageInput,
+    updateChatMessageQuery
+} from '@/queries/chatMessageQuery'
 
 export type messageType = 'apiMessage' | 'userMessage' | 'usermessagewaiting'
 
@@ -390,11 +397,24 @@ export const Bot = (props: BotProps & { class?: string }) => {
     return (
         <>
             <div ref={botContainer} class={'relative flex w-full h-full text-base overflow-hidden bg-cover bg-center flex-col items-center chatbot-container ' + props.class}>
+                <div class="custom-header">
+                    <img src="https://www.qmic.com/wp-content/themes/qmic-theme/images/header-qmic-logo.png" width="55"
+                         alt="Qmic Logo"/>
+                    <span class="header-text">Ask <strong>QMIC</strong> AI Assistant!</span>
+                </div>
+
                 <div class="flex w-full h-full justify-center">
-                    <div style={{ "padding-bottom": '100px' }} ref={chatContainer} class="overflow-y-scroll min-w-full w-full min-h-full px-3 pt-10 relative scrollable-container chatbot-chat-view scroll-smooth">
+
+
+                    <div style={{"padding-bottom": '220px'}} ref={chatContainer}
+                         class="overflow-y-scroll min-w-full w-full min-h-full px-3 pt-10 relative scrollable-container chatbot-chat-view scroll-smooth">
+
+
+
                         <For each={[...messages()]}>
                             {(message, index) => (
                                 <>
+
                                     {message.type === 'userMessage' && (
                                         <GuestBubble
                                             message={message.message}
@@ -466,5 +486,5 @@ type BottomSpacerProps = {
     ref: HTMLDivElement | undefined
 }
 const BottomSpacer = (props: BottomSpacerProps) => {
-    return <div ref={props.ref} class="w-full h-32" />
+    return <div ref={props.ref} class="w-full h-32"/>
 }
